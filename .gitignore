@@ -34,3 +34,7 @@ build/
 
 ### macOS ###
 .DS_Store
+
+### Claude Code ###
+# Local permission overrides are machine-specific; CLAUDE.md and skills are tracked.
+.claude/settings.local.json
