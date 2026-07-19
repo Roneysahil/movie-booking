@@ -7,22 +7,21 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * HTTP Basic over stateless requests. Advanced auth (OAuth/SSO/MFA) is out of scope;
  * what matters here is the authorization model, which is fully enforced.
  *
- * <p>Users are in-memory for now. They move to the {@code users} table once the schema
- * lands — only this class changes.
+ * <p>Credentials are checked against the users table by
+ * {@code DatabaseUserDetailsService}.
  */
 @Configuration
 @EnableMethodSecurity
+@EnableScheduling
 public class SecurityConfig {
 
     @Bean
@@ -43,18 +42,5 @@ public class SecurityConfig {
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    UserDetailsService userDetailsService(PasswordEncoder encoder) {
-        return new InMemoryUserDetailsManager(
-                User.withUsername("admin@movies.test")
-                        .password(encoder.encode("admin123"))
-                        .roles("ADMIN")
-                        .build(),
-                User.withUsername("customer@movies.test")
-                        .password(encoder.encode("customer123"))
-                        .roles("CUSTOMER")
-                        .build());
     }
 }
