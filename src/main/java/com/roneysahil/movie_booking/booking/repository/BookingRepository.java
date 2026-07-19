@@ -42,4 +42,28 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
               and b.status = com.roneysahil.movie_booking.booking.domain.Booking$Status.CONFIRMED
            """)
     long countConfirmedForShow(@Param("showId") Long showId);
+
+    /**
+     * Confirmed bookings whose show starts inside the reminder window and which have not
+     * been reminded yet.
+     *
+     * <p>The NOT EXISTS is what makes the reminder job idempotent: the unique constraint
+     * on (booking_id, type) would also prevent a duplicate, but by raising an error
+     * rather than quietly skipping. Filtering here keeps the happy path clean.
+     */
+    @Query("""
+           select b from Booking b
+            join fetch b.user
+            join fetch b.show s
+            join fetch s.movie
+            join fetch s.screen sc
+            join fetch sc.theater
+            where b.status = com.roneysahil.movie_booking.booking.domain.Booking$Status.CONFIRMED
+              and s.startsAt between :from and :to
+              and not exists (
+                    select 1 from NotificationOutbox n
+                     where n.bookingId = b.id
+                       and n.type = com.roneysahil.movie_booking.notification.domain.NotificationOutbox$Type.SHOW_REMINDER)
+           """)
+    List<Booking> findNeedingReminder(@Param("from") Instant from, @Param("to") Instant to);
 }

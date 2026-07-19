@@ -9,7 +9,7 @@ the same seat, with money involved. Everything else is built to be complete but 
 where the depth went.
 
 - **Stack:** Java 21, Spring Boot 4.1, PostgreSQL 17, Flyway, Spring Data JPA, Spring Security
-- **Scale:** 53 REST endpoints, 20 tables, 46 tests
+- **Scale:** 53 REST endpoints, 20 tables, 53 tests
 - **Design rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
 
 ---
@@ -292,7 +292,19 @@ trading a missing email for a lost sale. The outbox also survives restarts, whic
 fire-and-forget `@Async` call does not. A unique constraint on `(booking_id, type)`
 prevents duplicate sends.
 
-**Delivery itself is a stub.** The plumbing is real; swapping in SES is a one-class change.
+Three pieces:
+
+- **`NotificationPublisher`** — writes intent inside the booking transaction
+- **`NotificationDispatcher`** — polls every 10s, delivers each row in its own
+  transaction, retries with exponential backoff (1/2/4/8 min), parks a row as `FAILED`
+  after 5 attempts
+- **`ShowReminderScheduler`** — every 5 minutes, queues a reminder for confirmed bookings
+  whose show starts within 24 hours; idempotent via a `NOT EXISTS` check plus the unique
+  constraint
+
+**Delivery itself is a logging stub** — `NotificationSender` is the only class that knows
+how a message leaves the system, so swapping in SES or Twilio replaces that one class and
+leaves the outbox, retry and backoff behaviour untouched.
 
 ---
 
@@ -300,7 +312,7 @@ prevents duplicate sends.
 
 ```bash
 createdb movie_booking_test     # one-time
-./mvnw test                     # 46 tests
+./mvnw test                     # 53 tests
 ```
 
 Tests use a **separate database**, rebuilt from migrations and seed for each context.
@@ -309,7 +321,8 @@ Tests use a **separate database**, rebuilt from migrations and seed for each con
 |---|---|---|
 | `SeatConcurrencyIntegrationTest` | 4 | 20 threads on one seat; overlapping selections; concurrent full funnels; two-customer race |
 | `BookingFlowIntegrationTest` | 7 | Funnel over HTTP, 409, discount cap, unusable codes, payment idempotency |
-| `AccessControlIntegrationTest` | 8 | Anonymous, bad credentials, role separation, cross-customer access |
+| `AccessControlIntegrationTest` | 11 | Anonymous, bad credentials, registration, role separation, cross-customer access |
+| `NotificationOutboxIntegrationTest` | 4 | Enqueue-then-deliver, retry with backoff, booking survives transport failure |
 | `PricingRulesTest` | 26 | Discount maths, refund band boundaries, hold expiry |
 
 The concurrency tests are deliberately **not** `@Transactional`: a test-managed
