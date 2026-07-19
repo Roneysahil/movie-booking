@@ -31,4 +31,15 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
               and b.createdAt < :cutoff
            """)
     List<Booking> findAbandoned(@Param("cutoff") Instant cutoff);
+
+    /**
+     * Guards rescheduling and repricing. Moving a show that people have already paid to
+     * attend would invalidate tickets already sold.
+     */
+    @Query("""
+           select count(b) from Booking b
+            where b.show.id = :showId
+              and b.status = com.roneysahil.movie_booking.booking.domain.Booking$Status.CONFIRMED
+           """)
+    long countConfirmedForShow(@Param("showId") Long showId);
 }
