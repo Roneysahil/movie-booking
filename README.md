@@ -178,6 +178,73 @@ Prices are stored three times — on `show_seats` (current), `booking_seats` (as
 and `shows.base_price`. Deliberate denormalization: repricing a tier tomorrow must not
 change what a customer paid today, nor what they are refunded.
 
+### Schema reference
+
+20 tables, defined in [`V1__baseline.sql`](src/main/resources/db/migration/V1__baseline.sql)
+(the source of truth). Every table has a `bigint` identity `id`; only the other columns are
+listed. Money is `numeric(10,2)`, instants are `timestamptz` (UTC), and enum-like columns
+are `text` with a `CHECK` constraint. `→` marks a foreign key.
+
+**Identity**
+
+| Table | Columns |
+|---|---|
+| `users` | `email` UNIQUE, `password_hash`, `full_name`, `role` (ADMIN\|CUSTOMER), `active`, `created_at`, `updated_at` |
+
+**Catalog** (admin-owned)
+
+| Table | Columns |
+|---|---|
+| `cities` | `name`, `state`, `timezone` (IANA), `active`, timestamps · UNIQUE `(name, state)` |
+| `theaters` | `city_id →cities`, `refund_policy_id →refund_policies` (nullable), `name`, `address`, `active`, timestamps |
+| `screens` | `theater_id →theaters`, `name`, `active`, `created_at` · UNIQUE `(theater_id, name)` |
+| `seats` | `screen_id →screens`, `row_label`, `seat_number`, `tier`, `active` · UNIQUE `(screen_id, row_label, seat_number)` |
+| `movies` | `title`, `duration_minutes`, `language`, `certification`, `synopsis`, `active`, timestamps |
+
+**Pricing**
+
+| Table | Columns |
+|---|---|
+| `pricing_tiers` | `tier` UNIQUE (REGULAR\|PREMIUM\|RECLINER), `multiplier`, `active` |
+| `pricing_config` | single row (`id = 1`): `weekend_multiplier`, `default_base_price`, `updated_at` |
+
+**Scheduling**
+
+| Table | Columns |
+|---|---|
+| `shows` | `movie_id →movies`, `screen_id →screens`, `starts_at`, `ends_at`, `base_price`, `status` (SCHEDULED\|CANCELLED\|COMPLETED), timestamps · EXCLUDE constraint prevents overlapping shows on one screen |
+| `show_seats` | `show_id →shows`, `seat_id →seats`, `hold_id →seat_holds` (nullable), `status` (AVAILABLE\|HELD\|BOOKED), `price`, `version` · UNIQUE `(show_id, seat_id)` — **the unit of allocation** |
+
+**Booking**
+
+| Table | Columns |
+|---|---|
+| `seat_holds` | `show_id →shows`, `user_id →users`, `status` (ACTIVE\|CONVERTED\|EXPIRED\|RELEASED), `expires_at`, `created_at` |
+| `bookings` | `booking_ref` UNIQUE, `user_id →users`, `show_id →shows`, `discount_code_id →discount_codes` (nullable), `status` (PENDING_PAYMENT\|CONFIRMED\|CANCELLED\|EXPIRED), `subtotal`, `discount_amount`, `total_amount`, `refund_policy_snapshot` (JSONB), timestamps |
+| `booking_seats` | `booking_id →bookings`, `show_seat_id →show_seats`, `price`, `active` · partial UNIQUE `(show_seat_id) WHERE active` — **the double-booking guarantee** |
+| `payments` | `booking_id →bookings`, `amount`, `status` (PENDING\|SUCCEEDED\|FAILED), `method`, `provider_ref`, `idempotency_key` UNIQUE, `created_at` |
+
+**Discounts**
+
+| Table | Columns |
+|---|---|
+| `discount_codes` | `code` UNIQUE, `type` (PERCENT\|FLAT), `value`, `max_discount`, `min_order_amount`, `valid_from`, `valid_to`, `usage_limit`, `times_used`, `per_user_limit`, `active`, `created_at` |
+| `discount_redemptions` | `discount_code_id →discount_codes`, `user_id →users`, `booking_id →bookings`, `created_at` · UNIQUE `(discount_code_id, booking_id)` |
+
+**Refunds**
+
+| Table | Columns |
+|---|---|
+| `refund_policies` | `name` UNIQUE, `is_default` (partial UNIQUE — at most one default), `active`, timestamps |
+| `refund_policy_tiers` | `refund_policy_id →refund_policies`, `min_hours_before_show`, `refund_percent` · UNIQUE `(refund_policy_id, min_hours_before_show)` |
+| `refunds` | `booking_id →bookings` UNIQUE, `amount`, `refund_percent`, `policy_name`, `status` (PENDING\|PROCESSED\|FAILED), `created_at` |
+
+**Notifications**
+
+| Table | Columns |
+|---|---|
+| `notification_outbox` | `booking_id`, `type` (BOOKING_CONFIRMATION\|SHOW_REMINDER\|REFUND_PROCESSED\|BOOKING_CANCELLED), `recipient`, `payload` (JSONB), `status` (PENDING\|SENT\|FAILED), `attempts`, `next_attempt_at`, `last_error`, `created_at` · UNIQUE `(booking_id, type)` |
+
 ---
 
 ## API
