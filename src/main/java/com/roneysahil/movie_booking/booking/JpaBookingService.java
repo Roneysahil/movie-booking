@@ -279,7 +279,7 @@ public class JpaBookingService implements BookingService {
     public List<BookingDto> listBookings(String username, String status) {
         return bookings.findHistory(username).stream()
                 .filter(b -> status == null || b.getStatus().name().equalsIgnoreCase(status))
-                .map(b -> toBookingDto(b, activeSeatsOf(b)))
+                .map(b -> toBookingDto(b, seatsForDisplay(b)))
                 .toList();
     }
 
@@ -287,7 +287,7 @@ public class JpaBookingService implements BookingService {
     @Transactional(readOnly = true)
     public BookingDto getBooking(String username, String bookingRef) {
         Booking booking = requireBooking(username, bookingRef);
-        return toBookingDto(booking, activeSeatsOf(booking));
+        return toBookingDto(booking, seatsForDisplay(booking));
     }
 
     // ----------------------------------------------------------- cancellation --
@@ -399,9 +399,27 @@ public class JpaBookingService implements BookingService {
                 .toList();
     }
 
+    /**
+     * Seats currently allocated to this booking. Used where allocation matters — flipping
+     * seats to BOOKED on payment, releasing them on cancellation.
+     */
     private List<ShowSeat> activeSeatsOf(Booking booking) {
         return bookingSeats.findByBookingId(booking.getId()).stream()
                 .filter(BookingSeat::isActive)
+                .map(BookingSeat::getShowSeat)
+                .sorted(Comparator.comparing(ShowSeat::getId))
+                .toList();
+    }
+
+    /**
+     * Every seat this booking ever covered, for display.
+     *
+     * <p>Cancellation clears {@code active} to free the partial unique index, so filtering
+     * on it here would show a cancelled booking with no seats — the customer could not see
+     * what they had booked. The flag governs allocation, not history.
+     */
+    private List<ShowSeat> seatsForDisplay(Booking booking) {
+        return bookingSeats.findByBookingId(booking.getId()).stream()
                 .map(BookingSeat::getShowSeat)
                 .sorted(Comparator.comparing(ShowSeat::getId))
                 .toList();

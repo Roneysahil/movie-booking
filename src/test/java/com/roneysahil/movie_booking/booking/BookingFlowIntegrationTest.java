@@ -217,6 +217,62 @@ class BookingFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("Booking history lists the caller's bookings, newest first, and filters by status")
+    void bookingHistoryIsScopedAndFilterable() throws Exception {
+        String keep = confirmBooking("history-keep");
+        String scrapped = confirmBooking("history-cancel");
+
+        mvc.perform(post("/api/bookings/" + scrapped + "/cancel")
+                        .with(httpBasic(CUSTOMER, PASSWORD)))
+                .andExpect(status().isOk());
+
+        String history = mvc.perform(get("/api/bookings").with(httpBasic(CUSTOMER, PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode all = MAPPER.readTree(history);
+        List<String> refs = new java.util.ArrayList<>();
+        all.forEach(node -> refs.add(node.get("bookingRef").asString()));
+        assertThat(refs).contains(keep, scrapped);
+
+        // Newest first.
+        assertThat(refs.indexOf(scrapped)).isLessThan(refs.indexOf(keep));
+
+        // A cancelled booking must still show what was booked. The active flag governs
+        // seat allocation, not what the customer is allowed to see afterwards.
+        JsonNode cancelled = MAPPER.readTree(
+                mvc.perform(get("/api/bookings/" + scrapped).with(httpBasic(CUSTOMER, PASSWORD)))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString());
+        assertThat(cancelled.get("status").asString()).isEqualTo("CANCELLED");
+        assertThat(cancelled.get("seats")).isNotEmpty();
+        assertThat(cancelled.get("totalAmount")).isNotNull();
+
+        // Status filter.
+        JsonNode confirmedOnly = MAPPER.readTree(
+                mvc.perform(get("/api/bookings?status=CONFIRMED")
+                                .with(httpBasic(CUSTOMER, PASSWORD)))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString());
+        List<String> confirmedRefs = new java.util.ArrayList<>();
+        confirmedOnly.forEach(node -> confirmedRefs.add(node.get("bookingRef").asString()));
+        assertThat(confirmedRefs).contains(keep).doesNotContain(scrapped);
+    }
+
+    @Test
+    @DisplayName("History never leaks another customer's bookings")
+    void historyIsScopedToTheCaller() throws Exception {
+        String mine = confirmBooking("history-scope");
+
+        String othersHistory = mvc.perform(get("/api/bookings")
+                        .with(httpBasic("priya@movies.test", PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(othersHistory).doesNotContain(mine);
+    }
+
+    @Test
     @DisplayName("An empty seat selection is rejected before any locking happens")
     void validationRejectsEmptySelection() throws Exception {
         mvc.perform(post("/api/holds")
@@ -238,6 +294,36 @@ class BookingFlowIntegrationTest {
     }
 
     // --- helpers -----------------------------------------------------------
+
+    /** Drives the full funnel and returns the confirmed booking reference. */
+    private String confirmBooking(String idempotencyKey) throws Exception {
+        Long showId = futureShowId();
+        List<Long> seats = availableSeatIds(showId, 1);
+
+        String holdId = MAPPER.readTree(
+                        mvc.perform(post("/api/holds")
+                                        .with(httpBasic(CUSTOMER, PASSWORD))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(holdBody(showId, seats)))
+                                .andReturn().getResponse().getContentAsString())
+                .get("holdId").asString();
+
+        String ref = MAPPER.readTree(
+                        mvc.perform(post("/api/bookings")
+                                        .with(httpBasic(CUSTOMER, PASSWORD))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("{\"holdId\":\"" + holdId + "\"}"))
+                                .andReturn().getResponse().getContentAsString())
+                .get("bookingRef").asString();
+
+        mvc.perform(post("/api/bookings/" + ref + "/payment")
+                        .with(httpBasic(CUSTOMER, PASSWORD))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"CARD\",\"idempotencyKey\":\"" + idempotencyKey
+                                + "\"}"))
+                .andExpect(status().isOk());
+        return ref;
+    }
 
     private String holdBody(Long showId, List<Long> seatIds) {
         return "{\"showId\":" + showId + ",\"showSeatIds\":" + seatIds + "}";
