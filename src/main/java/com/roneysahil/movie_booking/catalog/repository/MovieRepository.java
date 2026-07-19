@@ -12,10 +12,14 @@ public interface MovieRepository extends JpaRepository<Movie, Long> {
      * Movies with at least one upcoming show in the city. {@code q} is an optional
      * case-insensitive title filter — a convenience for browse, not a search subsystem.
      */
+    // The casts are load-bearing: without them Postgres cannot infer a type for a null
+    // :q and binds it as bytea, so lower(...) fails with "function lower(bytea) does not
+    // exist" whenever the filter is omitted.
     @Query("""
            select distinct m from Movie m
             where m.active = true
-              and (:q is null or lower(m.title) like lower(concat('%', :q, '%')))
+              and (cast(:q as string) is null
+                   or lower(m.title) like lower(concat('%', cast(:q as string), '%')))
               and exists (
                     select 1 from Show s
                      where s.movie = m

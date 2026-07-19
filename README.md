@@ -9,7 +9,7 @@ the same seat, with money involved. Everything else is built to be complete but 
 where the depth went.
 
 - **Stack:** Java 21, Spring Boot 4.1, PostgreSQL 17, Flyway, Spring Data JPA, Spring Security
-- **Scale:** 53 REST endpoints, 20 tables, 55 tests
+- **Scale:** 53 REST endpoints, 20 tables, 66 tests
 - **Design rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
 
 ---
@@ -312,7 +312,7 @@ leaves the outbox, retry and backoff behaviour untouched.
 
 ```bash
 createdb movie_booking_test     # one-time
-./mvnw test                     # 55 tests
+./mvnw test                     # 66 tests
 ```
 
 Tests use a **separate database**, rebuilt from migrations and seed for each context.
@@ -323,6 +323,7 @@ Tests use a **separate database**, rebuilt from migrations and seed for each con
 | `BookingFlowIntegrationTest` | 9 | Funnel over HTTP, 409, discount cap, unusable codes, payment idempotency, booking history |
 | `AccessControlIntegrationTest` | 11 | Anonymous, bad credentials, registration, role separation, cross-customer access |
 | `NotificationOutboxIntegrationTest` | 4 | Enqueue-then-deliver, retry with backoff, booking survives transport failure |
+| `BrowseIntegrationTest` | 11 | City/movie/show/seat-map browse, every filter present and absent |
 | `PricingRulesTest` | 26 | Discount maths, refund band boundaries, hold expiry |
 
 The concurrency tests are deliberately **not** `@Transactional`: a test-managed
