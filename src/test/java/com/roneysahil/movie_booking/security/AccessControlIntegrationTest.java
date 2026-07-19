@@ -3,6 +3,7 @@ package com.roneysahil.movie_booking.security;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.roneysahil.movie_booking.show.domain.Show;
@@ -57,8 +58,8 @@ class AccessControlIntegrationTest {
     }
 
     @Test
-    @DisplayName("Registration is the only public endpoint")
-    void registrationIsPublic() throws Exception {
+    @DisplayName("A registered account can immediately authenticate")
+    void registrationCreatesAUsableAccount() throws Exception {
         mvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -66,7 +67,57 @@ class AccessControlIntegrationTest {
                                   "password":"supersecret",
                                   "fullName":"New Comer"}
                                  """))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role").value("CUSTOMER"))
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+
+        // The real assertion: the account persists and its password verifies. A 201 alone
+        // would pass against an endpoint that saved nothing.
+        mvc.perform(get("/api/auth/me").with(httpBasic("newcomer@movies.test", "supersecret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("newcomer@movies.test"))
+                .andExpect(jsonPath("$.fullName").value("New Comer"))
+                .andExpect(jsonPath("$.role").value("CUSTOMER"));
+    }
+
+    @Test
+    @DisplayName("/me reports the caller's real role, not a default")
+    void meReportsActualRole() throws Exception {
+        mvc.perform(get("/api/auth/me").with(httpBasic(ADMIN, ADMIN_PW)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+
+        mvc.perform(get("/api/auth/me").with(httpBasic(CUSTOMER, CUSTOMER_PW)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("CUSTOMER"));
+    }
+
+    @Test
+    @DisplayName("Registering an existing email is rejected")
+    void duplicateRegistrationIsRejected() throws Exception {
+        mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {"email":"customer@movies.test",
+                                  "password":"supersecret",
+                                  "fullName":"Impostor"}
+                                 """))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @DisplayName("A weak password is rejected before an account is created")
+    void weakPasswordIsRejected() throws Exception {
+        mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {"email":"weak@movies.test",
+                                  "password":"short",
+                                  "fullName":"Weak Password"}
+                                 """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.password").exists());
     }
 
     @Test
