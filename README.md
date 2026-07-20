@@ -9,7 +9,7 @@ the same seat, with money involved. Everything else is built to be complete but 
 where the depth went.
 
 - **Stack:** Java 21, Spring Boot 4.1, PostgreSQL 17, Flyway, Spring Data JPA, Spring Security
-- **Scale:** 53 REST endpoints, 20 tables, 68 tests
+- **Scale:** 53 REST endpoints, 20 tables, 70 tests
 - **Design rationale:** [`docs/DESIGN.md`](docs/DESIGN.md)
 
 ---
@@ -379,7 +379,7 @@ leaves the outbox, retry and backoff behaviour untouched.
 
 ```bash
 createdb movie_booking_test     # one-time
-./mvnw test                     # 68 tests
+./mvnw test                     # 70 tests
 ```
 
 Tests use a **separate database**, rebuilt from migrations and seed for each context.

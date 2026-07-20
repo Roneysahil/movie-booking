@@ -15,6 +15,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -70,13 +71,22 @@ public class ShowSeat {
     private Integer version;
 
     /**
-     * A held seat whose hold has lapsed is effectively available. Expiry is evaluated on
-     * read so correctness never depends on the sweeper having run.
+     * A held seat is bookable again only when its hold has lapsed <em>by time</em> — still
+     * ACTIVE but past its expiry. Expiry is evaluated on read, so correctness never
+     * depends on the sweeper having run.
+     *
+     * <p>A CONVERTED hold must NOT count as available: it means a booking exists for this
+     * seat (possibly still awaiting payment), and the seat is taken until that booking is
+     * paid (→ BOOKED) or abandoned and swept (→ AVAILABLE). {@code SeatHold.isExpired()}
+     * treats CONVERTED as expired for its own purposes, so it cannot be used here.
      */
     public boolean isBookable() {
         if (status == Status.AVAILABLE) {
             return true;
         }
-        return status == Status.HELD && hold != null && hold.isExpired();
+        return status == Status.HELD
+                && hold != null
+                && hold.getStatus() == SeatHold.Status.ACTIVE
+                && Instant.now().isAfter(hold.getExpiresAt());
     }
 }
